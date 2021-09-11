@@ -101,11 +101,12 @@ fn try_remove(
     cargo_check(dir)?;
 
     results.push_str(&format!(
-        "\n# {}/Cargo.toml {} {:?}\n(cd {} && cargo rm {})",
+        "\n# {}/Cargo.toml {} {:?}\n(cd {} && cargo rm {} {})",
         &dir.to_string_lossy(),
         krate,
         dep_type,
         dir.to_string_lossy(),
+        dep_type.extra_flag().unwrap_or(""),
         krate
     ));
     Ok(())
