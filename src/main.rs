@@ -1,12 +1,9 @@
-use argh::FromArgs;
 use cargo_metadata::MetadataCommand;
-use std::fs::OpenOptions;
-use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use toml_edit::*;
 
-#[allow(dead_code)]
+#[derive(Debug)]
 enum DependencyType {
     Main,
     Dev,
@@ -27,24 +24,6 @@ impl DependencyType {
     }
 }
 
-#[derive(FromArgs)]
-#[argh(description = "Take away deps and see if it builds")]
-struct Config {
-    #[argh(
-        switch,
-        short = 'd',
-        description = "instead of normal deps, reduce dev dependencies"
-    )]
-    dev_dependencies: bool,
-
-    #[argh(
-        option,
-        default = "String::from(\"/home/gilescope/git/polkadot4\")",
-        description = "clean git checkout location"
-    )]
-    repo: String,
-}
-
 fn ripgrep(dir: &Path, needle: &str) -> bool {
     // Note: This is overly cautious as if there's a subdir with a crate in it that does use this dependency it will
     // also assume it's used.
@@ -56,24 +35,6 @@ fn ripgrep(dir: &Path, needle: &str) -> bool {
         .status()
         .unwrap()
         .success()
-}
-
-/// Record a result outside of the git repo
-fn append_line_to_log(result_file: &Path, dir: &Path, krate: &str) {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .append(true)
-        .open(result_file)
-        .unwrap();
-    if let Err(e) = writeln!(
-        file,
-        "WORKED: {}/Cargo.toml\t{}",
-        dir.to_string_lossy(),
-        krate
-    ) {
-        eprintln!("Couldn't write file: {}", e);
-    }
 }
 
 fn cargo_check(dir: &Path) -> Result<(), String> {
@@ -134,31 +95,45 @@ fn try_remove(
     dep_type: &DependencyType,
     krate: &str,
     dir: &Path,
-    result_file: &Path,
+    results: &mut String,
 ) -> Result<(), String> {
     cargo_rm(dep_type.extra_flag(), krate, dir)?;
     cargo_check(dir)?;
 
-    println!("WORKED:{:?} {} {:?}", dep_type.extra_flag(), krate, &dir);
-    append_line_to_log(result_file, dir, krate);
+    results.push_str(&format!(
+        "\n# {}/Cargo.toml {} {:?}\n(cd {} && cargo rm {})",
+        &dir.to_string_lossy(),
+        krate,
+        dep_type,
+        dir.to_string_lossy(),
+        krate
+    ));
     Ok(())
 }
 
 /// Needs cargo edit, rg and git installed.
 fn main() {
-    let config: Config = argh::from_env();
-    let home = dirs::home_dir().expect("home dir not found");
-    let repo_dir = PathBuf::from(config.repo);
-    let dep_type = if config.dev_dependencies {
-        DependencyType::Dev
-    } else {
-        DependencyType::Main
-    };
-
+    if std::env::args_os().count() > 1 {
+        eprintln!("run this in a clean checkout to reduce dependencies. No arguments needed.");
+        return;
+    }
+    let repo_dir = PathBuf::from(
+        std::env::current_dir()
+            .expect("no current dir and --repo not specified")
+            .to_string_lossy()
+            .to_string(),
+    );
     bail_if_checkout_dirty(&repo_dir);
+    // let home = dirs::home_dir().expect("home dir not found");
+    // let result_file = home.join("unused.log");
+    let mut results = String::new();
+    undepend(DependencyType::Main, repo_dir.clone(), &mut results);
+    undepend(DependencyType::Dev, repo_dir, &mut results);
+    println!("{}", results);
+    std::fs::write("unused.sh", &results).unwrap();
+}
 
-    let result_file = home.join("unused.log");
-
+fn undepend(dep_type: DependencyType, repo_dir: PathBuf, mut results: &mut String) {
     let metadata = MetadataCommand::new()
         .manifest_path(repo_dir.join("Cargo.toml"))
         .exec()
@@ -174,13 +149,21 @@ fn main() {
 
         if let Item::Table(table) = toml_item.root {
             if let Item::Table(ref deps) = table[dep_type.dep_group()] {
-                for (krate, _v) in deps.iter() {
+                for (krate, v) in deps.iter() {
+                    if let Item::Value(Value::InlineTable(tbl)) = v {
+                        if let Some(Value::Boolean(val)) = tbl.get("optional") {
+                            if *val.value() {
+                                println!("dep is optional {} - skipping", krate);
+                                continue;
+                            }
+                        }
+                    }
                     if ripgrep(&dir, krate) {
                         println!("looks like {} is used - skipping", krate);
                         continue;
                     }
 
-                    if let Err(msg) = try_remove(&dep_type, krate, &dir, &result_file) {
+                    if let Err(msg) = try_remove(&dep_type, krate, &dir, &mut results) {
                         eprintln!("couldn't remove dependency {}: {}", krate, msg);
                     }
                     git_reset_hard(&dir);
@@ -188,4 +171,5 @@ fn main() {
             }
         }
     }
+    println!("Results written to unused.log");
 }
