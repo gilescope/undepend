@@ -25,6 +25,13 @@ cargo check --all-targets
 
 git reset --hard
 
+## Performance:
+
+Because undepend skips some dependencies that are clearly used in the source,
+the runtime of undepend is not too bad. (Before that optimisation it could
+easily take overnight for some projects. Now I've not seen anything take longer than 30 mins for big
+ projects on a 32 core box.)
+
 ## Gotchas:
 
 At the moment cargo check --all-targets doesn't compile doc tests so if a dep is just used for that it might try and drop it.
@@ -40,3 +47,14 @@ If the dependency is optional no attempt is made to removing it.
 
 Please reference this issue to add to the trophy case:
 https://github.com/gilescope/undepend/issues/1
+
+## Prior Art:
+
+udeps:
+
+udeps takes a less brute-force approach of look at the incremental compile information in the target
+dir to base its decisions on.
+
+https://crates.io/crates/cargo-udeps
+
+(Also compared to udeps this crate has only pure rust dependencies.)
