@@ -1,34 +1,54 @@
 # undepend
 
-## installation
+
+## What undepend does
+
+undepend brute-force removes dependencies one by one checking that everything compiles after removal
+using `cargo check --all-targets`.
+
+It creates a file `unused.sh` with the list of crates that can be removed.
+You can trust it by running the script or cat the file in a vscode terminal
+and go through the Cargo.toml hyperlinks to check whether you agree that those crates should be removed.
+
+## Installation
 
 **assumes you have git**
-cargo install ripgrep cargo-edit undepend
 
-Point to a fresh clone and the tool will iterate over the workspace's dependencies,
+Install undepend and prerequisites:
+```sh
+cargo install ripgrep cargo-edit undepend
+```
+
+## Usage
+
+Change your current dir to the dir of a freshly checked out git clone and run:
+```sh
+undepend
+```
+The tool will iterate over the workspace's dependencies,
 removing them individually and establishing if everything still compiles.
 
-Records a list of dependencies that might be removable as it goes at ~/unused.log
-(feel free to tail the file)
+** The tool will abort if the checkout is not clean at the start. **
 
-`cargo install undepend --path .`
+A recorded list of dependencies are written to `unused.sh`
 
-Then in your _clean_ rust project that you've checked out run:
-`undepend`
+## How udepend works:
 
-## How this works:
+cargo metadata is used to understand the workspace.
 
-cargo rm a_crate_dep
+`cargo rm a_crate_dep`
 (from cargo-edit)
 
-cargo check --all-targets
+`cargo check --all-targets`
 
-git reset --hard
+`git reset --hard`
+
+rince and repeat.
 
 ## Performance:
 
-Because undepend skips some dependencies that are clearly used in the source,
-the runtime of undepend is not too bad. (Before that optimisation it could
+As an optimisation undepend skips some dependencies that are clearly used in the source.
+As such, the runtime of undepend is not too bad. (Before that optimisation it could
 easily take overnight for some projects. Now I've not seen anything take longer than 30 mins for big
  projects on a 32 core box.)
 
