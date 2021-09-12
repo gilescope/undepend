@@ -29,11 +29,11 @@ fn ripgrep(dir: &Path, needle: &str) -> bool {
     // also assume it's used.
     Command::new("rg")
         .args(&["--type", "rust"])
-        .arg("-qw")
+        .arg("-q") // -w was not good enough here. It failed to spot some usages.
         .arg(format!("{}::", needle.replace("-", "_")))
         .arg(&dir)
         .status()
-        .unwrap()
+        .expect("rg not found. Solution: cargo install ripgrep")
         .success()
 }
 
@@ -69,12 +69,24 @@ fn cargo_rm(rm_flag: Option<&str>, k: &str, dir: &Path) -> Result<(), String> {
     }
 }
 
+fn check_cargo_edit_installed() -> Result<(), String> {
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.stdout(std::process::Stdio::null());
+    cmd.arg("rm");
+    cmd.arg("--help");
+    let result = cmd.status().map_err(|e| e.to_string())?;
+    if result.success() {
+        Ok(())
+    } else {
+        Err(format!("cargo edit not installed."))
+    }
+}
+
 fn git_reset_hard(dir: &Path) {
     let mut cmd = std::process::Command::new("git");
     cmd.args(vec!["reset", "--hard"]);
     cmd.current_dir(dir);
-    cmd.status()
-        .expect("Panic: If git reset doesn't work we can't go on.");
+    cmd.status().expect("Panic: git reset --hard doesn't work.");
 }
 
 fn bail_if_checkout_dirty(repo_dir: &Path) {
@@ -116,6 +128,10 @@ fn try_remove(
 fn main() {
     if std::env::args_os().count() > 1 {
         eprintln!("run this in a clean checkout to reduce dependencies. No arguments needed.");
+        return;
+    }
+    if check_cargo_edit_installed().is_err() {
+        eprintln!("Please cargo install cargo-edit");
         return;
     }
     let repo_dir = PathBuf::from(
