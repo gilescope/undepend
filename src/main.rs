@@ -1,25 +1,39 @@
-use cargo_metadata::MetadataCommand;
+use cargo_metadata::{Metadata, MetadataCommand};
+use core::panic;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use toml_edit::*;
 
 #[derive(Debug)]
 enum DependencyType {
-    Main,
+    Normal,
     Dev,
+    Build,
 }
 
 impl DependencyType {
     fn dep_group(&self) -> &'static str {
         match self {
             Self::Dev => "dev-dependencies",
-            Self::Main => "dependencies",
+            Self::Build => "build-dependencies",
+            Self::Normal => "dependencies",
         }
     }
+
+    /// name for things under package.metadata.cargo-udeps.ignore
+    fn ignore_group(&self) -> &'static str {
+        match self {
+            Self::Dev => "dev",
+            Self::Build => "build",
+            Self::Normal => "normal",
+        }
+    }
+
     fn extra_flag(&self) -> Option<&'static str> {
         match self {
             Self::Dev => Some("--dev"),
-            Self::Main => None,
+            Self::Build => Some("--build"),
+            Self::Normal => None,
         }
     }
 }
@@ -37,31 +51,43 @@ fn ripgrep(dir: &Path, needle: &str) -> bool {
         .success()
 }
 
-fn cargo_check(dir: &Path, debug: bool) -> Result<(), String> {
+fn cargo_check(dir: &Path) -> Result<(), String> {
     let mut cmd = std::process::Command::new("cargo");
     cmd.args(vec!["check", "--all-targets"]);
-    if !debug {
-        cmd.arg("--release");
-    }
     cmd.current_dir(dir);
     let result = cmd.status();
     let status = result.map_err(|e| e.to_string())?;
     if status.success() {
-        if debug {
-            println!("check: --release");
-            cargo_check(dir, false)
-        } else {
-            println!("last check: doc tests compile?");
-            cargo_test(dir)
-        }
+        cargo_build(dir)
+    } else {
+        Err(format!("{:?} failed", cmd))
+    }
+}
+
+fn cargo_build(dir: &Path) -> Result<(), String> {
+    println!("check: --release");
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.args(vec!["build", "--all-targets"]);
+    cmd.arg("--release");
+    cmd.current_dir(dir);
+    let result = cmd.status();
+    let status = result.map_err(|e| e.to_string())?;
+    if status.success() {
+        cargo_test(dir)
     } else {
         Err(format!("{:?} failed", cmd))
     }
 }
 
 fn cargo_test(dir: &Path) -> Result<(), String> {
+    println!("last check: doc tests compile?");
     let mut cmd = std::process::Command::new("cargo");
-    cmd.args(vec!["test", "bet_u_dont_have_a_test_called_this"]);
+    cmd.args(vec![
+        "test",
+        "--doc",
+        "--release", // debug we only checked, but we've already build release so may be faster.
+        "bet_u_dont_have_a_test_called_this",
+    ]);
     cmd.current_dir(dir);
     let result = cmd.status();
     let status = result.map_err(|e| e.to_string())?;
@@ -132,7 +158,7 @@ fn try_remove(
     results: &mut String,
 ) -> Result<(), String> {
     cargo_rm(dep_type.extra_flag(), krate, dir)?;
-    cargo_check(dir, true)?;
+    cargo_check(dir)?;
 
     results.push_str(&format!(
         "\n# {}/Cargo.toml {} {:?}\n(cd {} && cargo rm {} {})",
@@ -169,39 +195,66 @@ fn main() {
     // let home = dirs::home_dir().expect("home dir not found");
     // let result_file = home.join("unused.log");
     let mut results = String::new();
-    undepend(DependencyType::Main, repo_dir.clone(), &mut results);
-    undepend(DependencyType::Dev, repo_dir, &mut results);
-    println!("{}", results);
-    std::fs::write("unused.sh", &results).unwrap();
-}
 
-fn undepend(dep_type: DependencyType, repo_dir: PathBuf, mut results: &mut String) {
     let metadata = MetadataCommand::new()
         .manifest_path(repo_dir.join("Cargo.toml"))
         .exec()
         .unwrap();
 
-    for (i, p) in metadata.workspace_members.iter().enumerate() {
-        let parts: Vec<_> = p.repr.split("path+file://").collect();
+    println!("\nChecking for unused dependencies:");
+
+    if let Err(msg) = cargo_check(&repo_dir) {
+        panic!("we need a clean build before we can proceed: {}", msg);
+    }
+
+    undepend(DependencyType::Normal, &metadata, &mut results);
+    println!("\nChecking for unused dev-dependencies:");
+    undepend(DependencyType::Dev, &metadata, &mut results);
+    println!("\nChecking for unused build-dependencies:");
+    undepend(DependencyType::Build, &metadata, &mut results);
+    println!("{}", results);
+    if results.is_empty() {
+        println!("💖💖💖 no unused deps found 💖💖💖");
+    } else {
+        std::fs::write("unused.sh", &results).unwrap();
+        println!("Results written to unused.log");
+    }
+}
+
+fn undepend(dep_type: DependencyType, metadata: &Metadata, mut results: &mut String) {
+    for package in metadata.workspace_members.iter() {
+        let parts: Vec<_> = package.repr.split("path+file://").collect();
         let dir = PathBuf::from(&parts[1][..(parts[1].len() - 1)]);
-        println!("processing {}: {:?}", i, &dir);
 
         let file = std::fs::read_to_string(&dir.join("Cargo.toml")).unwrap();
         let toml_item = file.parse::<Document>().expect("invalid doc");
 
         if let Item::Table(table) = toml_item.root {
+            if let Item::Table(ref deps) = table["package.metadata.cargo-udeps.ignore"] {
+                for (udep_type, v) in deps.iter() {
+                    if dep_type.ignore_group() == udep_type {
+                        if let Item::Value(Value::Array(arr)) = v {
+                            for krate in arr.iter() {
+                                if let Value::String(krate_name) = krate {
+                                    println!("found an ignore!! {}", krate_name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if let Item::Table(ref deps) = table[dep_type.dep_group()] {
                 for (krate, v) in deps.iter() {
                     if let Item::Value(Value::InlineTable(tbl)) = v {
                         if let Some(Value::Boolean(val)) = tbl.get("optional") {
                             if *val.value() {
-                                println!("dep is optional {} - skipping", krate);
+                                println!("skipping {}\t[optional]", krate);
                                 continue;
                             }
                         }
                     }
                     if ripgrep(&dir, krate) {
-                        println!("looks like {} is used - skipping", krate);
+                        println!("skipping {}\t[in use]", krate);
                         continue;
                     }
 
@@ -213,5 +266,4 @@ fn undepend(dep_type: DependencyType, repo_dir: PathBuf, mut results: &mut Strin
             }
         }
     }
-    println!("Results written to unused.log");
 }

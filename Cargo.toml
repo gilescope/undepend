@@ -13,3 +13,12 @@ categories = ["development-tools", "development-tools::cargo-plugins"]
 [dependencies]
 cargo_metadata = "0.14"
 toml_edit = "0.2"
+
+[dev-dependencies]
+spin = "0.5.2"
+
+# Example of how to mark a dependency to be ignored from analysis:
+[package.metadata.cargo-udeps.ignore]
+normal = []
+dev = ["aargh"]
+build = []

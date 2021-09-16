@@ -1,20 +1,19 @@
 # undepend
 
+undepend removes dependencies by brute force by removing likely candidates and checking that everything compiles after removal.
 
-## What undepend does:
+The results are a list of crates that can be removed in a file called `unused.sh`.
+`chmod +x ./unused.sh` and run it to remove all the unused deps and see if the result works for you.
 
-undepend brute-force removes dependencies one by one by checking that everything compiles after removal
-using `cargo check --all-targets`.
-
-It creates a file `unused.sh` with the list of crates that can be removed.
-You can trust it by running the script or cat the file in a vscode terminal
-and go through the Cargo.toml hyperlinks to check whether you agree that those crates should be removed.
+Alternatively you can `cat ./unused.sh` in a vscode terminal
+and use the Cargo.toml hyperlinks to manually check that those crates ought to be removed.
 
 ## Installation:
 
-**assumes you have git**
+(needs git)
 
 Install undepend and prerequisites:
+
 ```sh
 cargo install ripgrep cargo-edit undepend
 ```
@@ -22,9 +21,11 @@ cargo install ripgrep cargo-edit undepend
 ## Usage:
 
 Change your current dir to the dir of a freshly checked out git clone and run:
+
 ```sh
 undepend
 ```
+
 The tool will iterate over the workspace's dependencies,
 removing them individually and establishing if everything still compiles.
 
@@ -40,8 +41,8 @@ For each crate we run:
 
   * `cargo rm a_crate_dep` (from cargo-edit)
   * `cargo check --all-targets`
-  * `cargo check --all-targets --release`
-  * `cargo test non_existent_test_name`
+  * `cargo build --all-targets --release`
+  * `cargo test --doc --release non_existent_test_name`
   * If we get to here without errors then possibly the dep is not needed.
   * `git reset --hard` (to get back to a clean state)
 
@@ -64,6 +65,14 @@ https://github.com/rust-lang/cargo/pull/8859
 
 If the dependency is optional no attempt is made to removing it.
 
+## Skipping:
+
+We try and respect cargo-udeps ignore format:
+
+`[package.metadata.cargo-udeps.ignore]`
+
+(See [Cargo.toml](Cargo.toml) for an example)
+
 ## Trophy Case:
 
 Please reference this issue to add to the trophy case:
@@ -83,5 +92,5 @@ https://crates.io/crates/cargo-udeps
 
 ## Changelog:
 
-   * 0.1.1 Check debug + release mode and doc tests
+   * 0.1.1 Check debug + release mode and doc tests. Checking build dependencies also.
    * 0.1.0 Initial release
