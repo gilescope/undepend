@@ -51,20 +51,20 @@ fn ripgrep(dir: &Path, needle: &str) -> bool {
         .success()
 }
 
-fn cargo_check(dir: &Path) -> Result<(), String> {
+fn cargo_check(dir: &Path, check_doc_tests: bool) -> Result<(), String> {
     let mut cmd = std::process::Command::new("cargo");
     cmd.args(vec!["check", "--all-targets"]);
     cmd.current_dir(dir);
     let result = cmd.status();
     let status = result.map_err(|e| e.to_string())?;
     if status.success() {
-        cargo_build(dir)
+        cargo_build(dir, check_doc_tests)
     } else {
         Err(format!("{:?} failed", cmd))
     }
 }
 
-fn cargo_build(dir: &Path) -> Result<(), String> {
+fn cargo_build(dir: &Path, check_doc_tests: bool) -> Result<(), String> {
     println!("check: --release");
     let mut cmd = std::process::Command::new("cargo");
     cmd.args(vec!["build", "--all-targets"]);
@@ -73,7 +73,11 @@ fn cargo_build(dir: &Path) -> Result<(), String> {
     let result = cmd.status();
     let status = result.map_err(|e| e.to_string())?;
     if status.success() {
-        cargo_test(dir)
+        if check_doc_tests {
+            cargo_test(dir)
+        } else {
+            Ok(())
+        }
     } else {
         Err(format!("{:?} failed", cmd))
     }
@@ -156,9 +160,10 @@ fn try_remove(
     krate: &str,
     dir: &Path,
     results: &mut String,
+    check_doc_tests: bool,
 ) -> Result<(), String> {
     cargo_rm(dep_type.extra_flag(), krate, dir)?;
-    cargo_check(dir)?;
+    cargo_check(dir, check_doc_tests)?;
 
     results.push_str(&format!(
         "\n# {}/Cargo.toml {} {:?}\n(cd {} && cargo rm {} {})",
@@ -202,16 +207,34 @@ fn main() {
         .unwrap();
 
     println!("\nChecking for unused dependencies:");
-
-    if let Err(msg) = cargo_check(&repo_dir) {
-        panic!("we need a clean build before we can proceed: {}", msg);
+    let mut doc_tests_exist = true;
+    if let Err(msg) = cargo_check(&repo_dir, true) {
+        if !msg.contains("no library targets found in package") {
+            panic!("we need a clean build before we can proceed: {}", msg);
+        }
+        doc_tests_exist = false;
     }
 
-    undepend(DependencyType::Normal, &metadata, &mut results);
+    undepend(
+        DependencyType::Normal,
+        &metadata,
+        &mut results,
+        doc_tests_exist,
+    );
     println!("\nChecking for unused dev-dependencies:");
-    undepend(DependencyType::Dev, &metadata, &mut results);
+    undepend(
+        DependencyType::Dev,
+        &metadata,
+        &mut results,
+        doc_tests_exist,
+    );
     println!("\nChecking for unused build-dependencies:");
-    undepend(DependencyType::Build, &metadata, &mut results);
+    undepend(
+        DependencyType::Build,
+        &metadata,
+        &mut results,
+        doc_tests_exist,
+    );
     println!("{}", results);
     if results.is_empty() {
         println!("💖💖💖 no unused deps found 💖💖💖");
@@ -221,7 +244,12 @@ fn main() {
     }
 }
 
-fn undepend(dep_type: DependencyType, metadata: &Metadata, mut results: &mut String) {
+fn undepend(
+    dep_type: DependencyType,
+    metadata: &Metadata,
+    mut results: &mut String,
+    check_doc_tests: bool,
+) {
     for package in metadata.workspace_members.iter() {
         let parts: Vec<_> = package.repr.split("path+file://").collect();
         let dir = PathBuf::from(&parts[1][..(parts[1].len() - 1)]);
@@ -258,7 +286,9 @@ fn undepend(dep_type: DependencyType, metadata: &Metadata, mut results: &mut Str
                         continue;
                     }
 
-                    if let Err(msg) = try_remove(&dep_type, krate, &dir, &mut results) {
+                    if let Err(msg) =
+                        try_remove(&dep_type, krate, &dir, &mut results, check_doc_tests)
+                    {
                         eprintln!("couldn't remove dependency {}: {}", krate, msg);
                     }
                     git_reset_hard(&dir);
