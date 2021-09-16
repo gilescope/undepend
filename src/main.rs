@@ -94,7 +94,6 @@ fn cargo_test(dir: &Path) -> Result<(), String> {
     ]);
     cmd.current_dir(dir);
     match cmd.output() {
-        //    let status = result.map_err(|e| e.to_string())?;
         Ok(_output) => Ok(()),
         Err(err) => Err(format!("{:?} failed test compile due to {}", cmd, err)),
     }
@@ -257,8 +256,12 @@ fn undepend(
 
         if let Item::Table(table) = toml_item.root {
             if let Item::Table(ref deps) = table["package.metadata.cargo-udeps.ignore"] {
+                println!("found an ignore table!! ");
+
                 for (udep_type, v) in deps.iter() {
+                    println!("found an ignore row!! ");
                     if dep_type.ignore_group() == udep_type {
+                        println!("found a  {}", udep_type);
                         if let Item::Value(Value::Array(arr)) = v {
                             for krate in arr.iter() {
                                 if let Value::String(krate_name) = krate {
