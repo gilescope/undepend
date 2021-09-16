@@ -93,12 +93,10 @@ fn cargo_test(dir: &Path) -> Result<(), String> {
         "bet_u_dont_have_a_test_called_this",
     ]);
     cmd.current_dir(dir);
-    let result = cmd.status();
-    let status = result.map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{:?} failed test compile", cmd))
+    match cmd.output() {
+        //    let status = result.map_err(|e| e.to_string())?;
+        Ok(_output) => Ok(()),
+        Err(err) => Err(format!("{:?} failed test compile due to {}", cmd, err)),
     }
 }
 
