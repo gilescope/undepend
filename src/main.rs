@@ -37,16 +37,38 @@ fn ripgrep(dir: &Path, needle: &str) -> bool {
         .success()
 }
 
-fn cargo_check(dir: &Path) -> Result<(), String> {
+fn cargo_check(dir: &Path, debug: bool) -> Result<(), String> {
     let mut cmd = std::process::Command::new("cargo");
     cmd.args(vec!["check", "--all-targets"]);
+    if !debug {
+        cmd.arg("--release");
+    }
+    cmd.current_dir(dir);
+    let result = cmd.status();
+    let status = result.map_err(|e| e.to_string())?;
+    if status.success() {
+        if debug {
+            println!("check: --release");
+            cargo_check(dir, false)
+        } else {
+            println!("last check: doc tests compile?");
+            cargo_test(dir)
+        }
+    } else {
+        Err(format!("{:?} failed", cmd))
+    }
+}
+
+fn cargo_test(dir: &Path) -> Result<(), String> {
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.args(vec!["test", "bet_u_dont_have_a_test_called_this"]);
     cmd.current_dir(dir);
     let result = cmd.status();
     let status = result.map_err(|e| e.to_string())?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!("{:?} failed", cmd))
+        Err(format!("{:?} failed test compile", cmd))
     }
 }
 
@@ -110,7 +132,7 @@ fn try_remove(
     results: &mut String,
 ) -> Result<(), String> {
     cargo_rm(dep_type.extra_flag(), krate, dir)?;
-    cargo_check(dir)?;
+    cargo_check(dir, true)?;
 
     results.push_str(&format!(
         "\n# {}/Cargo.toml {} {:?}\n(cd {} && cargo rm {} {})",
@@ -124,9 +146,12 @@ fn try_remove(
     Ok(())
 }
 
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 /// Needs cargo edit, rg and git installed.
 fn main() {
     if std::env::args_os().count() > 1 {
+        println!("undepend v{}", VERSION);
         eprintln!("run this in a clean checkout to reduce dependencies. No arguments needed.");
         return;
     }

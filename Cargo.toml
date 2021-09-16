@@ -1,6 +1,6 @@
 [package]
 name = "undepend"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 description = "Trys to remove dependencies from your git checkout. Needs to work on a clean checkout."
 homepage = "https://github.com/gilescope/undepend"

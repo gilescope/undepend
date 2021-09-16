@@ -32,7 +32,7 @@ removing them individually and establishing if everything still compiles.
 
 A recorded list of dependencies are written to `unused.sh`
 
-## How udepend works:
+## How undepend works:
 
 cargo metadata is used to understand which crates are in the workspace.
 
@@ -40,6 +40,9 @@ For each crate we run:
 
   * `cargo rm a_crate_dep` (from cargo-edit)
   * `cargo check --all-targets`
+  * `cargo check --all-targets --release`
+  * `cargo test non_existent_test_name`
+  * If we get to here without errors then possibly the dep is not needed.
   * `git reset --hard` (to get back to a clean state)
 
 ## Performance:
@@ -51,7 +54,8 @@ easily take overnight for some projects. Now I've not seen anything take longer 
 
 ## Gotchas:
 
-At the moment `cargo check --all-targets` doesn't compile doc tests so if a dep is just used for that it might try and drop it.
+At the moment `cargo check --all-targets` doesn't compile doc tests so
+we try and run `cargo test non_existent_test_name` - this I think forces the compile to happen.
 
 (Tracking issues/PR for fixing this:
 https://github.com/rust-lang/cargo/issues/6424
@@ -71,8 +75,13 @@ https://github.com/gilescope/undepend/issues/1
 ### udeps:
 
 udeps takes a less brute-force approach of look at the incremental compile information in the target
-dir to base its decisions on.
+dir to base its decisions on and thus is better for regular CI use.
 
 https://crates.io/crates/cargo-udeps
 
 (Also compared to udeps this crate has only pure rust dependencies.)
+
+## Changelog:
+
+   * 0.1.1 Check debug + release mode and doc tests
+   * 0.1.0 Initial release
