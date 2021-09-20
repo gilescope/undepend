@@ -23,7 +23,7 @@ impl DependencyType {
     /// name for things under package.metadata.cargo-udeps.ignore
     fn ignore_group(&self) -> &'static str {
         match self {
-            Self::Dev => "dev",
+            Self::Dev => "development",
             Self::Build => "build",
             Self::Normal => "normal",
         }
@@ -37,6 +37,12 @@ impl DependencyType {
         }
     }
 }
+
+/// Ignore crates that we _know_ are only used with features turned on.
+/// We are always going to *wrongly* remove them.
+static GLOBAL_IGNORE : [&str; 1] = [
+    "getrandom",  // Wasm js feature.
+];
 
 fn ripgrep(dir: &Path, needle: &str) -> bool {
     // Note: This is overly cautious as if there's a subdir with a crate in it that does use this dependency it will
@@ -159,6 +165,13 @@ fn try_remove(
     results: &mut String,
     check_doc_tests: bool,
 ) -> Result<(), String> {
+    for k in GLOBAL_IGNORE
+    {
+        if k == krate {
+            return Err(format!("skipping {}\t[global ignore]", krate));
+        }
+    }
+
     cargo_rm(dep_type.extra_flag(), krate, dir)?;
     cargo_check(dir, check_doc_tests)?;
 
@@ -180,7 +193,8 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 fn main() {
     if std::env::args_os().count() > 1 {
         println!("undepend v{}", VERSION);
-        eprintln!("run this in a clean checkout to reduce dependencies. No arguments needed.");
+        eprintln!("Run this in a clean checkout to reduce dependencies. No arguments needed.");
+        println!("(to ignore some dependencies, write `package.metadata.cargo-udeps.ignore` in Cargo.toml)");
         return;
     }
     if check_cargo_edit_installed().is_err() {

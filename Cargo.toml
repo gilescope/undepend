@@ -20,5 +20,5 @@ spin = "0.5.2"
 # Example of how to mark a dependency to be ignored from analysis:
 [package.metadata.cargo-udeps.ignore]
 normal = []
-dev = ["spin"]
+development = ["spin"]
 build = []
