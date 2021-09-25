@@ -57,30 +57,36 @@ fn ripgrep(dir: &Path, needle: &str) -> bool {
         .success()
 }
 
-fn cargo_check(dir: &Path, check_doc_tests: bool) -> Result<(), String> {
+fn cargo_check(dir: &Path, check_doc_tests: bool, use_all_features: bool) -> Result<(), String> {
     let mut cmd = std::process::Command::new("cargo");
     cmd.args(vec!["check", "--all-targets"]);
+    if use_all_features {
+        cmd.arg("--all-features");
+    }
     cmd.current_dir(dir);
     let result = cmd.status();
     let status = result.map_err(|e| e.to_string())?;
     if status.success() {
-        cargo_build(dir, check_doc_tests)
+        cargo_build(dir, check_doc_tests, use_all_features)
     } else {
         Err(format!("{:?} failed", cmd))
     }
 }
 
-fn cargo_build(dir: &Path, check_doc_tests: bool) -> Result<(), String> {
+fn cargo_build(dir: &Path, check_doc_tests: bool, use_all_features: bool) -> Result<(), String> {
     println!("check: --release");
     let mut cmd = std::process::Command::new("cargo");
     cmd.args(vec!["build", "--all-targets"]);
+    if use_all_features {
+        cmd.arg("--all-features");
+    }
     cmd.arg("--release");
     cmd.current_dir(dir);
     let result = cmd.status();
     let status = result.map_err(|e| e.to_string())?;
     if status.success() {
         if check_doc_tests {
-            cargo_test(dir)
+            cargo_test(dir, use_all_features)
         } else {
             Ok(())
         }
@@ -89,15 +95,21 @@ fn cargo_build(dir: &Path, check_doc_tests: bool) -> Result<(), String> {
     }
 }
 
-fn cargo_test(dir: &Path) -> Result<(), String> {
+fn cargo_test(dir: &Path, use_all_features: bool) -> Result<(), String> {
     println!("last check: doc tests compile?");
     let mut cmd = std::process::Command::new("cargo");
     cmd.args(vec![
         "test",
         "--doc",
         "--release", // debug we only checked, but we've already build release so may be faster.
-        "bet_u_dont_have_a_test_called_this",
     ]);
+    if use_all_features {
+        cmd.arg("--all-features");
+    }
+    cmd.arg("bet_u_dont_have_a_test_called_this");
+    cmd.arg("--");
+    cmd.arg("--include-ignored");
+
     cmd.current_dir(dir);
     match cmd.output() {
         Ok(_output) => Ok(()),
@@ -164,6 +176,7 @@ fn try_remove(
     dir: &Path,
     results: &mut String,
     check_doc_tests: bool,
+    use_all_features: bool,
 ) -> Result<(), String> {
     for k in GLOBAL_IGNORE
     {
@@ -173,7 +186,7 @@ fn try_remove(
     }
 
     cargo_rm(dep_type.extra_flag(), krate, dir)?;
-    cargo_check(dir, check_doc_tests)?;
+    cargo_check(dir, check_doc_tests, use_all_features)?;
 
     results.push_str(&format!(
         "\n# {}/Cargo.toml {} {:?}\n(cd {} && cargo rm {} {})",
@@ -217,9 +230,11 @@ fn main() {
         .exec()
         .unwrap();
 
+    let use_all_features = cargo_check(&repo_dir, true, true).is_ok();
+
     println!("\nChecking for unused dependencies:");
     let mut doc_tests_exist = true;
-    if let Err(msg) = cargo_check(&repo_dir, true) {
+    if let Err(msg) = cargo_check(&repo_dir, true, use_all_features) {
         if !msg.contains("no library targets found in package") {
             panic!("we need a clean build before we can proceed: {}", msg);
         }
@@ -231,6 +246,7 @@ fn main() {
         &metadata,
         &mut results,
         doc_tests_exist,
+        use_all_features
     );
     println!("\nChecking for unused dev-dependencies:");
     undepend(
@@ -238,6 +254,7 @@ fn main() {
         &metadata,
         &mut results,
         doc_tests_exist,
+        use_all_features
     );
     println!("\nChecking for unused build-dependencies:");
     undepend(
@@ -245,6 +262,7 @@ fn main() {
         &metadata,
         &mut results,
         doc_tests_exist,
+        use_all_features
     );
     println!("{}", results);
     if results.is_empty() {
@@ -260,6 +278,7 @@ fn undepend(
     metadata: &Metadata,
     mut results: &mut String,
     check_doc_tests: bool,
+    use_all_features: bool
 ) {
     for package in metadata.workspace_members.iter() {
         let parts: Vec<_> = package.repr.split("path+file://").collect();
@@ -302,7 +321,7 @@ fn undepend(
                     }
 
                     if let Err(msg) =
-                        try_remove(&dep_type, krate, &dir, &mut results, check_doc_tests)
+                        try_remove(&dep_type, krate, &dir, &mut results, check_doc_tests, use_all_features)
                     {
                         eprintln!("couldn't remove dependency {}: {}", krate, msg);
                     }

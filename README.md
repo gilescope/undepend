@@ -55,6 +55,8 @@ easily take overnight for some projects. Now I've not seen anything take longer 
 
 ## Gotchas:
 
+If a dependency is non-optional, is only used for one target platform and isn't directly used we may still try and remove it.
+
 At the moment `cargo check --all-targets` doesn't compile doc tests so
 we try and run `cargo test non_existent_test_name` - this I think forces the compile to happen.
 
@@ -67,7 +69,7 @@ If the dependency is optional no attempt is made to removing it.
 
 ## Skipping:
 
-We try and respect cargo-udeps ignore format:
+TODO: We try and respect cargo-udeps ignore format:
 
 `[package.metadata.cargo-udeps.ignore]`
 
