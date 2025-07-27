@@ -285,9 +285,10 @@ fn undepend(
         let dir = PathBuf::from(&parts[1][..(parts[1].len() - 1)]);
 
         let file = std::fs::read_to_string(&dir.join("Cargo.toml")).unwrap();
-        let toml_item = file.parse::<Document>().expect("invalid doc");
+        let toml_item = file.parse::<Document::<_>>().expect("invalid doc");
 
-        if let Item::Table(table) = toml_item.root {
+        let mut it = toml_item.iter();
+        if let (_, Item::Table(table)) = it.next().unwrap() {
             if let Item::Table(ref deps) = table["package.metadata.cargo-udeps.ignore"] {
                 println!("found an ignore table!! ");
 
